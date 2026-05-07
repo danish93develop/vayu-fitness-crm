@@ -72,7 +72,7 @@ export async function createMemberAction(
 export async function updateMemberAction(
   id: string,
   values: MemberInput,
-): Promise<ActionResult> {
+): Promise<ActionResult<{ id: string }>> {
   const session = await requirePermission("members:update");
   const { user } = session;
 
@@ -127,7 +127,7 @@ export async function updateMemberAction(
 
     revalidatePath("/members");
     revalidatePath(`/members/${id}`);
-    return { ok: true, data: undefined };
+    return { ok: true, data: { id } };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }

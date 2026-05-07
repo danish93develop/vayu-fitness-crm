@@ -7,12 +7,15 @@ import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/dashboard/status-badge";
-import { searchMembersForCheckInAction, checkInAction } from "@/server/actions/attendance";
+import {
+  searchMembersForCheckInAction,
+  checkInAction,
+  type CheckInSearchResult,
+} from "@/server/actions/attendance";
 import { cn } from "@/lib/utils";
 import { formatTime } from "@/lib/date";
 
-type Result = Awaited<ReturnType<typeof searchMembersForCheckInAction>>;
-type Match = Result extends { ok: true; data: infer D } ? (D extends Array<infer X> ? X : never) : never;
+type Match = CheckInSearchResult;
 
 export function CheckInSearch() {
   const router = useRouter();

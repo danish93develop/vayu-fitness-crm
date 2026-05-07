@@ -1,4 +1,5 @@
 import type { NextAuthConfig } from "next-auth";
+import type { UserRoleType } from "@prisma/client";
 
 /**
  * Edge-safe Auth.js config — used by middleware.ts.
@@ -52,11 +53,15 @@ export default {
       return token;
     },
     async session({ session, token }) {
+      // The JWT shape is augmented in src/types/next-auth.d.ts, but the type
+      // doesn't always flow through next-auth v5-beta's callback signature
+      // (it surfaces as `unknown`). The casts below match the runtime values
+      // we wrote in the `jwt` callback above.
       if (token) {
-        session.user.id = token.id;
-        session.user.role = token.role;
-        session.user.gymId = token.gymId;
-        session.user.branchId = token.branchId;
+        session.user.id = token.id as string;
+        session.user.role = token.role as UserRoleType;
+        session.user.gymId = token.gymId as string;
+        session.user.branchId = token.branchId as string | null;
       }
       return session;
     },

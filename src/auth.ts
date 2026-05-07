@@ -1,6 +1,7 @@
 import NextAuth, { CredentialsSignin } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@auth/prisma-adapter";
+import type { Adapter } from "next-auth/adapters";
 import { prisma } from "@/lib/prisma";
 import { verifyPassword } from "@/lib/auth/password";
 import { audit, getClientIp, getUserAgent } from "@/lib/audit";
@@ -27,7 +28,9 @@ const { maxFailedLoginAttempts, lockoutMinutes, sessionLifetimeDays } = BUSINESS
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   ...authConfig,
-  adapter: PrismaAdapter(prisma),
+  // Cast through `Adapter` because next-auth and @auth/prisma-adapter pull
+  // slightly different versions of @auth/core. The runtime shape is identical.
+  adapter: PrismaAdapter(prisma) as Adapter,
   // JWT strategy is required when using Credentials provider with Auth.js v5.
   // We still write Session/Account/AuditLog rows for audit + future expansion.
   session: { strategy: "jwt", maxAge: sessionLifetimeDays * 24 * 60 * 60 },

@@ -69,7 +69,10 @@ export async function createLeadAction(values: LeadInput): Promise<ActionResult<
   }
 }
 
-export async function updateLeadAction(id: string, values: LeadInput): Promise<ActionResult> {
+export async function updateLeadAction(
+  id: string,
+  values: LeadInput,
+): Promise<ActionResult<{ id: string }>> {
   const { user } = await requirePermission("leads:update");
 
   const parsed = LeadSchema.safeParse(values);
@@ -111,7 +114,7 @@ export async function updateLeadAction(id: string, values: LeadInput): Promise<A
 
     revalidatePath("/leads");
     revalidatePath(`/leads/${id}`);
-    return { ok: true, data: undefined };
+    return { ok: true, data: { id } };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }

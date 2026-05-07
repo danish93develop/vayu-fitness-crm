@@ -12,6 +12,17 @@ type ActionResult<T = unknown> =
   | { ok: true; data: T }
   | { ok: false; error: string };
 
+export type CheckInSearchResult = {
+  id: string;
+  fullName: string;
+  memberCode: string;
+  phone: string;
+  status: MemberStatus;
+  blocked: boolean;
+  blockReason: string | null;
+  alreadyCheckedInAt: Date | null;
+};
+
 /**
  * Fast member search for the check-in panel. Returns up to 8 matches with
  * their current status + a `blocked` flag if their membership doesn't allow
@@ -19,20 +30,7 @@ type ActionResult<T = unknown> =
  */
 export async function searchMembersForCheckInAction(
   query: string,
-): Promise<
-  ActionResult<
-    Array<{
-      id: string;
-      fullName: string;
-      memberCode: string;
-      phone: string;
-      status: MemberStatus;
-      blocked: boolean;
-      blockReason: string | null;
-      alreadyCheckedInAt: Date | null;
-    }>
-  >
-> {
+): Promise<ActionResult<CheckInSearchResult[]>> {
   const { user } = await requirePermission("attendance:read");
 
   const q = query.trim();

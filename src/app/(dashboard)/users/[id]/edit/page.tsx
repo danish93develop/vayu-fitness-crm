@@ -3,6 +3,7 @@ import { requirePermission } from "@/lib/auth/session";
 import { getUserById } from "@/server/services/users";
 import { PageHeader } from "@/components/layout/page-header";
 import { UserForm } from "@/components/forms/user-form";
+import type { UserUpdateInput } from "@/lib/validations/user";
 
 export const metadata = { title: "Edit staff" };
 
@@ -28,7 +29,7 @@ export default async function EditUserPage({ params }: { params: Promise<{ id: s
           name: user.name,
           email: user.email,
           phone: user.phone ?? "",
-          role: user.role,
+          role: user.role as UserUpdateInput["role"],
           isActive: user.isActive,
           password: "",
         }}
