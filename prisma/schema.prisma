@@ -1,0 +1,913 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Vayu Fitness CRM — Prisma Schema
+// Conventions:
+//   • IDs:           cuid()
+//   • Money:         Int paise (₹×100). Never floats. Helper in src/lib/money.ts
+//   • Soft delete:   deletedAt DateTime? on every "real" entity
+//   • Multi-branch:  every operational row carries gymId + branchId
+//   • Audit trail:   createdById / updatedById on sensitive entities
+//   • Enums:         business statuses, never magic strings in code
+//   • Auth.js:       Account / Session / VerificationToken tables included
+//   • Future:        WebhookEvent table stub for Razorpay/WhatsApp
+// ─────────────────────────────────────────────────────────────────────────────
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearchPostgres"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum UserRoleType {
+  SUPER_ADMIN
+  ADMIN
+  MANAGER
+  RECEPTIONIST
+  ACCOUNTANT
+  TRAINER
+  MEMBER
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  UNSPECIFIED
+}
+
+enum MemberStatus {
+  ACTIVE
+  EXPIRING_SOON
+  EXPIRED
+  FROZEN
+  CANCELLED
+  PENDING_PAYMENT
+  INACTIVE
+}
+
+enum MembershipStatus {
+  ACTIVE
+  EXPIRING_SOON
+  EXPIRED
+  FROZEN
+  CANCELLED
+  PENDING_PAYMENT
+}
+
+enum PlanType {
+  MAIN_MEMBERSHIP
+  ADD_ON
+  CLASS_PACKAGE
+  PERSONAL_TRAINING
+}
+
+enum PlanDurationUnit {
+  DAY
+  MONTH
+  YEAR
+}
+
+enum FreezeStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentMode {
+  CASH
+  UPI
+  CARD
+  BANK_TRANSFER
+  OTHER
+}
+
+enum PaymentStatus {
+  PAID
+  PARTIAL
+  PENDING
+  FAILED
+  REFUNDED
+  VOID
+}
+
+enum InstallmentStatus {
+  PENDING
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  TRIAL_BOOKED
+  TRIAL_COMPLETED
+  CONVERTED
+  LOST
+}
+
+enum LeadSource {
+  WALK_IN
+  REFERRAL
+  INSTAGRAM
+  FACEBOOK
+  GOOGLE
+  WHATSAPP
+  WEBSITE
+  OTHER
+}
+
+enum AttendanceMethod {
+  MANUAL
+  QR
+  BIOMETRIC
+  MOBILE_APP
+}
+
+enum AttendanceLogType {
+  IN
+  OUT
+}
+
+enum ClassStatus {
+  SCHEDULED
+  ONGOING
+  COMPLETED
+  CANCELLED
+}
+
+enum ClassBookingStatus {
+  BOOKED
+  CANCELLED
+  WAITLIST
+  ATTENDED
+  NO_SHOW
+}
+
+enum NotificationType {
+  MEMBERSHIP_EXPIRING
+  MEMBERSHIP_EXPIRED
+  INSTALLMENT_DUE
+  INSTALLMENT_OVERDUE
+  FREEZE_REQUEST
+  LEAD_FOLLOWUP
+  PAYMENT_RECEIVED
+  SYSTEM
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  SMS
+  WHATSAPP
+  PUSH
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  SOFT_DELETE
+  RESTORE
+  LOGIN
+  LOGOUT
+  LOGIN_FAILED
+  PASSWORD_CHANGED
+  ROLE_CHANGED
+  PERMISSION_CHANGED
+  PAYMENT_VOIDED
+  PAYMENT_REFUNDED
+  DISCOUNT_APPLIED
+  MEMBERSHIP_FROZEN
+  MEMBERSHIP_RENEWED
+  ATTENDANCE_EDITED
+  SETTINGS_UPDATED
+  EXPORT
+  IMPORT
+}
+
+enum WebhookEventStatus {
+  PENDING
+  PROCESSED
+  FAILED
+  IGNORED
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTH.js v5 tables (database session adapter)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  ipAddress    String?
+  userAgent    String?  @db.Text
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CORE: Gym / Branch / User / Role
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Gym {
+  id            String   @id @default(cuid())
+  name          String
+  legalName     String?
+  email         String?
+  phone         String?
+  address       String?
+  gstNumber     String?
+  invoicePrefix String   @default("VF-INV")
+  invoiceFooter String?  @db.Text
+  invoiceTerms  String?  @db.Text
+  defaultGstPct Int      @default(18) // basis: percent (18 = 18%)
+  expiryAlertDays Int    @default(7)
+  logoUrl       String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deletedAt     DateTime?
+
+  branches         Branch[]
+  members          Member[]
+  leads            Lead[]
+  trainers         Trainer[]
+  plans            MembershipPlan[]
+  memberships      MemberMembership[]
+  payments         Payment[]
+  invoices         Invoice[]
+  attendances      Attendance[]
+  classes          Class[]
+  notifications    Notification[]
+  settings         Setting[]
+  invoiceCounters  InvoiceCounter[]
+  auditLogs        AuditLog[]
+  webhookEvents    WebhookEvent[]
+  freezes          MembershipFreeze[]
+  users            User[]
+}
+
+model Branch {
+  id        String   @id @default(cuid())
+  gymId     String
+  name      String
+  address   String?
+  phone     String?
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  gym             Gym                @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  members         Member[]
+  leads           Lead[]
+  trainers        Trainer[]
+  memberships     MemberMembership[]
+  payments        Payment[]
+  invoices        Invoice[]
+  attendances     Attendance[]
+  classes         Class[]
+  invoiceCounters InvoiceCounter[]
+  freezes         MembershipFreeze[]
+  users           User[]
+
+  @@index([gymId])
+}
+
+model User {
+  id              String       @id @default(cuid())
+  gymId           String
+  branchId        String?
+  name            String
+  email           String       @unique
+  emailVerifiedAt DateTime?
+  phone           String?
+  passwordHash    String?      @db.Text // null when only OAuth
+  role            UserRoleType
+  image           String?
+  isActive        Boolean      @default(true)
+
+  // 2FA-ready (unused in MVP)
+  totpSecret      String?      @db.Text
+  totpEnabledAt   DateTime?
+
+  // Login security
+  lastLoginAt     DateTime?
+  lastLoginIp     String?
+  failedLoginAttempts Int     @default(0)
+  lockedUntil     DateTime?
+
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  deletedAt       DateTime?
+
+  gym             Gym          @relation(fields: [gymId], references: [id])
+  branch          Branch?      @relation(fields: [branchId], references: [id])
+  accounts        Account[]
+  sessions        Session[]
+
+  // Reverse links — what this user has done in the system
+  membersCreated         Member[]            @relation("MemberCreatedBy")
+  leadsCreated           Lead[]              @relation("LeadCreatedBy")
+  leadsAssigned          Lead[]              @relation("LeadAssignedTo")
+  followUps              LeadFollowUp[]
+  paymentsReceived       Payment[]           @relation("PaymentReceivedBy")
+  attendancesMarked      Attendance[]        @relation("AttendanceMarkedBy")
+  freezeApprovals        MembershipFreeze[]  @relation("FreezeApprovedBy")
+  freezeRequests         MembershipFreeze[]  @relation("FreezeRequestedBy")
+  membershipsCreated     MemberMembership[]  @relation("MembershipCreatedBy")
+  classBookingsBooked    ClassBooking[]      @relation("ClassBookingBookedBy")
+  notifications          Notification[]
+  auditLogs              AuditLog[]
+  memberProfile          Member?             @relation("UserMemberProfile")
+  trainerProfile         Trainer?            @relation("UserTrainerProfile")
+
+  @@index([gymId])
+  @@index([branchId])
+  @@index([role])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MEMBERS / LEADS / TRAINERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Member {
+  id               String       @id @default(cuid())
+  memberCode       String       @unique // human-friendly e.g. VF-M-0001
+  gymId            String
+  branchId         String
+  userId           String?      @unique // optional self-service login link
+
+  fullName         String
+  email            String?
+  phone            String
+  gender           Gender       @default(UNSPECIFIED)
+  dateOfBirth      DateTime?    @db.Date
+  address          String?
+  emergencyName    String?
+  emergencyPhone   String?
+
+  joiningDate      DateTime     @db.Date
+  status           MemberStatus @default(ACTIVE)
+  profilePhotoUrl  String?
+  notes            String?      @db.Text
+
+  assignedTrainerId String?
+  createdById      String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  deletedAt        DateTime?
+
+  gym              Gym               @relation(fields: [gymId], references: [id])
+  branch           Branch            @relation(fields: [branchId], references: [id])
+  user             User?             @relation("UserMemberProfile", fields: [userId], references: [id])
+  assignedTrainer  Trainer?          @relation(fields: [assignedTrainerId], references: [id])
+  createdBy        User?             @relation("MemberCreatedBy", fields: [createdById], references: [id])
+  memberships      MemberMembership[]
+  payments         Payment[]
+  invoices         Invoice[]
+  attendances      Attendance[]
+  freezes          MembershipFreeze[]
+  classBookings    ClassBooking[]
+  convertedFromLead Lead?
+
+  @@index([gymId, branchId])
+  @@index([phone])
+  @@index([status])
+  @@index([deletedAt])
+}
+
+model Lead {
+  id               String     @id @default(cuid())
+  gymId            String
+  branchId         String
+
+  name             String
+  phone            String
+  email            String?
+  gender           Gender     @default(UNSPECIFIED)
+  source           LeadSource @default(WALK_IN)
+  interestedPlanId String?
+  status           LeadStatus @default(NEW)
+  followUpDate     DateTime?  @db.Date
+  notes            String?    @db.Text
+
+  assignedToId     String?
+  createdById      String?
+  convertedMemberId String?  @unique // when CONVERTED, link to Member
+  convertedAt      DateTime?
+
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  deletedAt        DateTime?
+
+  gym              Gym             @relation(fields: [gymId], references: [id])
+  branch           Branch          @relation(fields: [branchId], references: [id])
+  interestedPlan   MembershipPlan? @relation(fields: [interestedPlanId], references: [id])
+  assignedTo       User?           @relation("LeadAssignedTo", fields: [assignedToId], references: [id])
+  createdBy        User?           @relation("LeadCreatedBy", fields: [createdById], references: [id])
+  convertedMember  Member?         @relation(fields: [convertedMemberId], references: [id])
+  followUps        LeadFollowUp[]
+
+  @@index([gymId, branchId])
+  @@index([status])
+  @@index([followUpDate])
+  @@index([phone])
+}
+
+model LeadFollowUp {
+  id        String   @id @default(cuid())
+  leadId    String
+  userId    String?
+  note      String   @db.Text
+  nextFollowUpDate DateTime? @db.Date
+  createdAt DateTime @default(now())
+
+  lead Lead  @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([leadId])
+}
+
+model Trainer {
+  id             String   @id @default(cuid())
+  gymId          String
+  branchId       String
+  userId         String?  @unique // optional User account link
+  name           String
+  phone          String?
+  email          String?
+  specialization String?
+  bio            String?  @db.Text
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deletedAt      DateTime?
+
+  gym             Gym     @relation(fields: [gymId], references: [id])
+  branch          Branch  @relation(fields: [branchId], references: [id])
+  user            User?   @relation("UserTrainerProfile", fields: [userId], references: [id])
+  assignedMembers Member[]
+  classes         Class[]
+
+  @@index([gymId, branchId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PLANS / MEMBERSHIPS / FREEZES
+// ─────────────────────────────────────────────────────────────────────────────
+
+model MembershipPlan {
+  id                String           @id @default(cuid())
+  gymId             String
+  name              String
+  type              PlanType
+  durationValue     Int                                      // 1, 3, 6, 12 …
+  durationUnit      PlanDurationUnit @default(MONTH)
+  basePricePaise    Int                                      // ₹2,000 = 200000
+  description       String?          @db.Text
+  allowsInstallments Boolean         @default(false)
+  maxInstallments   Int              @default(1)
+  isActive          Boolean          @default(true)
+  sortOrder         Int              @default(0)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  deletedAt         DateTime?
+
+  gym             Gym                 @relation(fields: [gymId], references: [id])
+  memberships     MemberMembership[]
+  interestedLeads Lead[]
+
+  @@index([gymId])
+  @@index([type])
+}
+
+model MemberMembership {
+  id               String           @id @default(cuid())
+  membershipCode   String           @unique // e.g. VF-MS-0001
+  gymId            String
+  branchId         String
+  memberId         String
+  planId           String
+
+  startDate        DateTime         @db.Date
+  endDate          DateTime         @db.Date
+  originalEndDate  DateTime         @db.Date  // tracks pre-freeze end so we can audit extensions
+  status           MembershipStatus @default(PENDING_PAYMENT)
+
+  basePricePaise   Int
+  discountPaise    Int              @default(0)
+  finalPricePaise  Int
+  paymentStatus    PaymentStatus    @default(PENDING)
+
+  freezeDaysUsed   Int              @default(0)  // running total (cap 30 per doc)
+  notes            String?          @db.Text
+
+  createdById      String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  deletedAt        DateTime?
+
+  gym       Gym                @relation(fields: [gymId], references: [id])
+  branch    Branch             @relation(fields: [branchId], references: [id])
+  member    Member             @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  plan      MembershipPlan     @relation(fields: [planId], references: [id])
+  createdBy User?              @relation("MembershipCreatedBy", fields: [createdById], references: [id])
+  payments     Payment[]
+  freezes      MembershipFreeze[]
+  installments PaymentInstallment[]
+
+  @@index([gymId, branchId])
+  @@index([memberId])
+  @@index([status])
+  @@index([endDate])
+}
+
+model MembershipFreeze {
+  id           String       @id @default(cuid())
+  gymId        String
+  branchId     String
+  memberId     String
+  membershipId String
+
+  startDate    DateTime     @db.Date
+  endDate      DateTime     @db.Date
+  days         Int                                  // total freeze days
+  reason       String       @db.Text
+  status       FreezeStatus @default(PENDING)
+
+  requestedById String?
+  approvedById  String?
+  approvedAt    DateTime?
+  rejectionReason String?   @db.Text
+
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  gym          Gym              @relation(fields: [gymId], references: [id])
+  branch       Branch           @relation(fields: [branchId], references: [id])
+  member       Member           @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  membership   MemberMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  requestedBy  User?            @relation("FreezeRequestedBy", fields: [requestedById], references: [id])
+  approvedBy   User?            @relation("FreezeApprovedBy", fields: [approvedById], references: [id])
+
+  @@index([memberId])
+  @@index([membershipId])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PAYMENTS / INSTALLMENTS / INVOICES
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Payment {
+  id                String        @id @default(cuid())
+  paymentCode       String        @unique // e.g. VF-PAY-0001
+  gymId             String
+  branchId          String
+  memberId          String
+  membershipId      String?
+
+  // Amounts in paise
+  amountPaise       Int                                  // gross amount the customer is paying now
+  discountPaise     Int           @default(0)
+  taxablePaise      Int                                  // amount minus discount, before GST
+  gstPaise          Int           @default(0)
+  totalPaise        Int                                  // taxablePaise + gstPaise (what hits the till)
+  gstPercent        Int           @default(0)            // snapshot at time of payment
+
+  mode              PaymentMode
+  status            PaymentStatus @default(PAID)
+  reference         String?       // txn id for UPI/card/bank
+  paymentDate       DateTime
+  notes             String?       @db.Text
+
+  // Discount metadata (per doc requirement)
+  discountReason    String?       @db.Text
+  discountApprovedById String?
+
+  // Future Razorpay
+  gateway           String?       // 'razorpay', null for manual
+  gatewayPaymentId  String?       // razorpay_payment_id
+
+  receivedById      String?
+  voidedAt          DateTime?
+  voidReason        String?       @db.Text
+
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  gym               Gym                  @relation(fields: [gymId], references: [id])
+  branch            Branch               @relation(fields: [branchId], references: [id])
+  member            Member               @relation(fields: [memberId], references: [id])
+  membership        MemberMembership?    @relation(fields: [membershipId], references: [id])
+  receivedBy        User?                @relation("PaymentReceivedBy", fields: [receivedById], references: [id])
+  installment       PaymentInstallment?  // back-link if this payment closed an installment
+  invoice           Invoice?
+
+  @@index([gymId, branchId])
+  @@index([memberId])
+  @@index([membershipId])
+  @@index([status])
+  @@index([paymentDate])
+}
+
+model PaymentInstallment {
+  id                String            @id @default(cuid())
+  membershipId      String
+  memberId          String
+  installmentNumber Int                                       // 1 or 2
+  amountPaise       Int
+  dueDate           DateTime          @db.Date
+  paidDate          DateTime?
+  status            InstallmentStatus @default(PENDING)
+  paymentId         String?           @unique                 // set when paid
+
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  membership MemberMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  payment    Payment?         @relation(fields: [paymentId], references: [id])
+
+  @@unique([membershipId, installmentNumber])
+  @@index([dueDate])
+  @@index([status])
+}
+
+model Invoice {
+  id              String   @id @default(cuid())
+  invoiceNumber   String   @unique // e.g. VF-INV-0001 — generated atomically via InvoiceCounter
+  gymId           String
+  branchId        String
+  memberId        String
+  paymentId       String   @unique
+
+  issueDate       DateTime @default(now())
+
+  // Snapshot fields — invoice must be immutable even if member/gym is edited later
+  memberNameSnapshot   String
+  memberPhoneSnapshot  String?
+  memberEmailSnapshot  String?
+  memberAddressSnapshot String?
+  planNameSnapshot     String
+  gymNameSnapshot      String
+  gymAddressSnapshot   String?
+  gymPhoneSnapshot     String?
+  gymEmailSnapshot     String?
+  gymGstSnapshot       String?
+  termsSnapshot        String? @db.Text
+  footerSnapshot       String? @db.Text
+
+  subtotalPaise   Int
+  discountPaise   Int      @default(0)
+  taxablePaise    Int
+  gstPaise        Int      @default(0)
+  gstPercent      Int      @default(0)
+  totalPaise      Int
+
+  createdAt       DateTime @default(now())
+
+  gym     Gym     @relation(fields: [gymId], references: [id])
+  branch  Branch  @relation(fields: [branchId], references: [id])
+  member  Member  @relation(fields: [memberId], references: [id])
+  payment Payment @relation(fields: [paymentId], references: [id])
+
+  @@index([gymId, branchId])
+  @@index([memberId])
+  @@index([issueDate])
+}
+
+// Atomic counter — guarantees unique sequential invoice numbers per gym/branch
+// even under concurrent writes. Update with `UPDATE ... RETURNING value`.
+model InvoiceCounter {
+  id        String   @id @default(cuid())
+  gymId     String
+  branchId  String
+  prefix    String   @default("VF-INV")
+  value     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  gym    Gym    @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([gymId, branchId, prefix])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ATTENDANCE  (one row per member per day; logs table for biometric future)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Attendance {
+  id           String           @id @default(cuid())
+  gymId        String
+  branchId     String
+  memberId     String
+  date         DateTime         @db.Date     // unique per member per day
+  firstInAt    DateTime?
+  lastOutAt    DateTime?
+  method       AttendanceMethod @default(MANUAL)
+  markedById   String?
+  notes        String?          @db.Text
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  gym       Gym              @relation(fields: [gymId], references: [id])
+  branch    Branch           @relation(fields: [branchId], references: [id])
+  member    Member           @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  markedBy  User?            @relation("AttendanceMarkedBy", fields: [markedById], references: [id])
+  logs      AttendanceLog[]                  // multi IN/OUT — populated by biometric later
+
+  @@unique([memberId, date])
+  @@index([gymId, branchId, date])
+  @@index([date])
+}
+
+model AttendanceLog {
+  id           String            @id @default(cuid())
+  attendanceId String
+  type         AttendanceLogType
+  occurredAt   DateTime
+  source       AttendanceMethod  @default(BIOMETRIC)
+  deviceId     String?
+
+  attendance   Attendance @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+
+  @@index([attendanceId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLASSES
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Class {
+  id        String      @id @default(cuid())
+  gymId     String
+  branchId  String
+  name      String
+  trainerId String?
+  date      DateTime    @db.Date
+  startTime DateTime
+  endTime   DateTime
+  capacity  Int         @default(20)
+  status    ClassStatus @default(SCHEDULED)
+  notes     String?     @db.Text
+
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  deletedAt DateTime?
+
+  gym      Gym            @relation(fields: [gymId], references: [id])
+  branch   Branch         @relation(fields: [branchId], references: [id])
+  trainer  Trainer?       @relation(fields: [trainerId], references: [id])
+  bookings ClassBooking[]
+
+  @@index([gymId, branchId, date])
+}
+
+model ClassBooking {
+  id        String              @id @default(cuid())
+  classId   String
+  memberId  String
+  status    ClassBookingStatus  @default(BOOKED)
+  bookedAt  DateTime            @default(now())
+  cancelledAt DateTime?
+  cancelReason String?
+  attended  Boolean             @default(false)
+  notes     String?             @db.Text
+
+  bookedById String?  // staff user who registered the member
+
+  class      Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  member     Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  bookedBy   User?    @relation("ClassBookingBookedBy", fields: [bookedById], references: [id])
+
+  // One active booking per (class, member). Cancelling soft-flips status — when
+  // a member rebooks after cancelling we update the existing row rather than
+  // inserting a duplicate, so this constraint stays valid.
+  @@unique([classId, memberId])
+  @@index([classId, status])
+  @@index([memberId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NOTIFICATIONS / AUDIT / SETTINGS / WEBHOOKS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String              @id @default(cuid())
+  gymId     String
+  userId    String?             // null = broadcast to role
+  targetRole UserRoleType?
+  title     String
+  message   String              @db.Text
+  type      NotificationType
+  channel   NotificationChannel @default(IN_APP)
+  link      String?             // optional deep link inside app
+  readAt    DateTime?
+  metadata  Json?               // arbitrary payload (memberId, paymentId, etc.)
+  createdAt DateTime            @default(now())
+
+  gym  Gym   @relation(fields: [gymId], references: [id])
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@index([gymId, type])
+}
+
+model AuditLog {
+  id         String      @id @default(cuid())
+  gymId      String?
+  userId     String?
+  action     AuditAction
+  entityType String                                  // e.g. "Member", "Payment"
+  entityId   String?
+  oldValue   Json?
+  newValue   Json?
+  ipAddress  String?
+  userAgent  String?     @db.Text
+  metadata   Json?
+  createdAt  DateTime    @default(now())
+
+  gym  Gym?  @relation(fields: [gymId], references: [id])
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([gymId, entityType])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([entityType, entityId])
+}
+
+// Key/value settings — gym-scoped overrides for things you'd rather not
+// hardcode (alert thresholds, GST default, feature flags, etc.).
+model Setting {
+  id        String   @id @default(cuid())
+  gymId     String
+  key       String
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  gym Gym @relation(fields: [gymId], references: [id], onDelete: Cascade)
+
+  @@unique([gymId, key])
+}
+
+// Future Razorpay / WhatsApp webhooks — log raw events for replay/debug
+model WebhookEvent {
+  id         String             @id @default(cuid())
+  gymId      String?
+  source     String                                  // 'razorpay', 'whatsapp', etc
+  eventType  String
+  externalId String?            @unique              // idempotency key
+  payload    Json
+  status     WebhookEventStatus @default(PENDING)
+  error      String?            @db.Text
+  receivedAt DateTime           @default(now())
+  processedAt DateTime?
+
+  gym Gym? @relation(fields: [gymId], references: [id])
+
+  @@index([source, eventType])
+  @@index([status])
+}
