@@ -12,6 +12,12 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   typedRoutes: true,
+  // Pino spawns a worker thread via thread-stream for the pino-pretty
+  // transport. Turbopack rewrites those worker paths to a virtual /ROOT
+  // root and then can't find the file at runtime (Windows shows it as
+  // E:\ROOT\node_modules\...). Marking these as external tells Next to
+  // load them with normal Node require, which resolves correctly.
+  serverExternalPackages: ["pino", "pino-pretty", "thread-stream"],
   async headers() {
     return [
       {
